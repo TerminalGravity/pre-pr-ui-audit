@@ -54,6 +54,15 @@ node scripts/resolve-surfaces.mjs --repo ~/ADR/changemaker-gcp --base 8916a032^1
 **Check the base.** A local `main` 185 commits stale resolves a two-file ticket to 122
 routes. The driver fetches and warns above 300 changed files.
 
+**Ports are per-worktree.** The driver reads `NEXT_PUBLIC_APP_URL` / `NEXTAUTH_URL` from
+the worktree's own `.env` — never the `BASE_URL` in that file, which is routinely stale at
+`:3000` while the app serves on `:3561`. It then resolves the listening PID's cwd and
+refuses if the server belongs to a different checkout, rather than auditing another
+worktree's build under this ticket's name. Override with `--base-url`.
+
+Add `AUDIT_CHANNEL=chrome` to run against installed Chrome and skip the Playwright browser
+download.
+
 ## Self-test
 
 `test/fixture.html` contains one known instance of every defect the probes look for, plus

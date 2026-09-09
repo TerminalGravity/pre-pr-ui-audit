@@ -58,6 +58,35 @@ That resolves the surfaces, installs `probes.ts` and a ticket-named spec into
 185 commits behind resolves a two-file ticket to 122 routes. The driver fetches and warns
 above 300 changed files; if it warns, fix the base rather than reading the output.
 
+### Which server gets audited
+
+Every worktree runs its own dev server on its own port, so there is no safe default. The
+driver resolves the URL in this order:
+
+1. `--base-url`, then `$BASE_URL`
+2. `NEXT_PUBLIC_APP_URL` or `NEXTAUTH_URL` from the worktree's `.env.local` / `.env`
+3. `PORT` from the same file
+
+**Do not trust `BASE_URL` inside a worktree `.env`** — it is routinely stale at `:3000`
+while `NEXT_PUBLIC_APP_URL` carries the real port (DS-13560's env holds `3561` and `3000`
+simultaneously). The driver reads the two that track the dev port and ignores the one that
+does not.
+
+It then proves the process listening on that port is running from **this** checkout, by
+resolving the listener's PID to its cwd, and refuses if it is not. Auditing another
+worktree's build and filing the result under this ticket is the same class of error the
+whole gate exists to prevent, so the driver stops rather than falls back to `:3000`.
+
+`AUDIT_CHANNEL=chrome` runs against installed Chrome instead of a Playwright-managed
+Chromium — useful when `playwright install` is a multi-hundred-MB download that fails.
+These probes are DOM geometry plus axe; any Chromium-family engine gives the same answer.
+
+The spec also refuses to measure a page that did not render. An error boundary or a
+sign-in redirect still produces a DOM that axe and the probes will happily measure, and a
+clean result on an error page reads exactly like a clean result on the real one. The first
+live run reported a "clipped text" finding against a Prisma error string; it now reports
+`[coverage] page is showing an error, not the surface` instead.
+
 ## How a surface is derived
 
 A surface is not a URL. It is **URL × role × width × interaction × data**. A route-list

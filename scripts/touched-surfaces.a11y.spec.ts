@@ -48,6 +48,38 @@ const manifest = JSON.parse(readFileSync(MANIFEST, 'utf8'))
 const surfaces: Surface[] = manifest.surfaces
 
 /**
+ * Sign in without touching the login form.
+ *
+ * Local dev registers a passwordless `dev-credentials` NextAuth provider. Minting
+ * the session with one page-context fetch is both faster and far less flaky than
+ * driving `/auth/login`, whose controlled inputs race React's onChange. The
+ * cookie is httpOnly, so this has to run in the page — it cannot be injected.
+ *
+ * Falls back to the real credential flow when the provider is absent (QA, prod).
+ */
+async function signIn(page: Page, email: string): Promise<void> {
+  await page.goto('/', { waitUntil: 'domcontentloaded' })
+  const minted = await page.evaluate(async (userEmail) => {
+    try {
+      const providers = await fetch('/api/auth/providers').then((r) => r.json())
+      if (!providers?.['dev-credentials']) return null
+      const { csrfToken } = await fetch('/api/auth/csrf').then((r) => r.json())
+      await fetch('/api/auth/callback/dev-credentials', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+        body: new URLSearchParams({ email: userEmail, csrfToken, json: 'true' }),
+      })
+      const session = await fetch('/api/auth/session').then((r) => r.json())
+      return session?.user?.email ?? null
+    } catch {
+      return null
+    }
+  }, email)
+
+  if (!minted) await loginWithCredentials(page, email)
+}
+
+/**
  * Dynamic segments are resolved once against the seeded workspace. An
  * unresolved segment is a hard failure, not a skip — a silently skipped
  * `[id]` route is the shape of "the gate was green and QA still found it".
@@ -104,8 +136,39 @@ function format(f: Finding, ctx: string): string {
   return `  [${f.probe}] ${f.wcag ?? ''} ${ctx}\n    ${f.selector}\n    "${f.text}"\n    ${f.detail}\n    ${m}`
 }
 
+/**
+ * Did the surface under audit actually render?
+ *
+ * An error boundary, a redirect to sign-in, or an empty shell still produces a
+ * DOM that axe and the probes will happily measure — and a clean result on an
+ * error page reads exactly like a clean result on the real one. The first live
+ * run of this spec audited a Prisma error message and reported findings against
+ * it. Refuse to count that as coverage.
+ */
+async function renderedProperly(page: Page, path: string): Promise<string | null> {
+  const url = new URL(page.url())
+  if (/\/auth\/(login|signin)/.test(url.pathname)) return 'redirected to sign-in — the session did not carry'
+  const body = (await page.locator('body').innerText().catch(() => '')) || ''
+  if (body.trim().length < 40) return 'page rendered almost no text — likely an empty shell'
+  const errorish = [
+    /Failed to fetch/i,
+    /PrismaClient\w*Error/,
+    /Application error/i,
+    /something went wrong/i,
+    /Unhandled Runtime Error/i,
+    /\b(404|500)\b.*(not found|server error)/i,
+  ].find((re) => re.test(body))
+  if (errorish) {
+    const line = body.split('\n').find((l) => errorish.test(l))?.trim().slice(0, 120)
+    return `page is showing an error, not the surface: "${line}"`
+  }
+  return null
+}
+
 test.describe('Touched-surface WCAG + reflow audit', () => {
-  test.describe.configure({ mode: 'serial' })
+  // Deliberately NOT serial. Every surface must report its own findings; a
+  // failure on the first must not skip the rest, or the audit reports one
+  // problem and hides the others.
 
   for (const surface of surfaces) {
     const email = ROLE_EMAIL[surface.role]
@@ -114,7 +177,7 @@ test.describe('Touched-surface WCAG + reflow audit', () => {
       test.skip(!email && surface.role !== 'public', `No credential configured for role ${surface.role}`)
       test.setTimeout(120_000 + surface.widths.length * 20_000)
 
-      if (email) await loginWithCredentials(page, email)
+      if (email) await signIn(page, email)
 
       const path = await resolveRoute(page, surface.route)
       // A route we cannot resolve is reported, never quietly passed.
@@ -126,6 +189,14 @@ test.describe('Touched-surface WCAG + reflow audit', () => {
         await page.setViewportSize({ width, height: width < 768 ? 812 : 1000 })
         await page.goto(path!, { waitUntil: 'domcontentloaded' })
         await settle(page)
+
+        // Measuring an error page and reporting it clean is worse than not
+        // running at all — stop this width and say why.
+        const notRendered = await renderedProperly(page, path!)
+        if (notRendered) {
+          failures.push(`  [coverage] @${width}px — ${notRendered}. Nothing measured here.`)
+          continue
+        }
 
         const axe = await new AxeBuilder({ page }).withTags(WCAG_TAGS).analyze()
         for (const v of axe.violations) {
