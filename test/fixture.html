@@ -1,0 +1,59 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>probe fixture</title>
+<style>
+  body { margin: 0; font: 16px/1.4 system-ui, sans-serif; width: 900px; }
+  section { margin: 12px; padding: 8px; border: 1px solid #ccc; }
+
+  /* 1. text-clipped-no-affordance — clipped, no ellipsis, no wrap */
+  #clipped { width: 80px; overflow: hidden; white-space: nowrap; text-overflow: clip; }
+
+  /* 2. ellipsis-hover-only — truncating, full value only in title */
+  #ellipsis { width: 80px; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+
+  /* 3. heading-clamped — line-clamp actively truncating */
+  #clamped { display: -webkit-box; -webkit-line-clamp: 1; -webkit-box-orient: vertical;
+             overflow: hidden; width: 120px; }
+
+  /* 4. element-outside-clipper — child paints past the box that clips it */
+  #clipper { width: 100px; overflow: hidden; position: relative; height: 40px; }
+  #escapee { width: 300px; background: #eef; }
+
+  /* 5. scroll-region-not-focusable — scrolls, no tabindex, no focusable child */
+  #scroller { max-height: 40px; overflow: auto; width: 200px; }
+
+  /* 6. text-overlaps-text — two text elements in the same place */
+  #overlap { position: relative; height: 40px; }
+  #over-a, #over-b { position: absolute; top: 0; left: 0; width: 120px; }
+
+  /* 7. page-horizontal-scroll — body is 900px, viewport will be 375 */
+
+  /* 8. target-too-small — under 24x24 */
+  #tiny { width: 16px; height: 16px; padding: 0; }
+</style>
+
+<section><div id="clipped">Participant role assignment</div></section>
+
+<section><div id="ellipsis" title="Q4 Sustainability Challenge 2026">Q4 Sustainability Challenge 2026</div></section>
+
+<section><h1 id="clamped">Quarterly Sustainability Challenge For The Whole Organisation</h1></section>
+
+<section><div id="clipper"><div id="escapee">This row runs well past its clipping container</div></div></section>
+
+<section><div id="scroller"><div>row one</div><div>row two</div><div>row three</div><div>row four</div></div></section>
+
+<section id="overlap"><span id="over-a">COMPLETE</span><span id="over-b">COMPLETE</span></section>
+
+<section><button id="tiny">x</button></section>
+
+<!-- clean controls: none of these may be reported -->
+<section>
+  <div id="ok-wrap" style="width:80px">This text wraps normally and is fully readable</div>
+  <div id="ok-ellipsis-link" style="width:80px;overflow:hidden;white-space:nowrap;text-overflow:ellipsis">
+    <a href="#">A truncated but focusable link</a>
+  </div>
+  <div id="ok-scroller" tabindex="0" role="region" aria-label="Rows" style="max-height:40px;overflow:auto;width:200px">
+    <div>row one</div><div>row two</div><div>row three</div><div>row four</div>
+  </div>
+  <button id="ok-target" style="width:32px;height:32px">ok</button>
+</section>
